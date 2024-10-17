@@ -1,4 +1,5 @@
 import photosdl
+import time
 import sys, getopt
 from os import listdir, remove
 from os.path import isfile, join, exists
@@ -62,4 +63,5 @@ def main(argv):
 
 if __name__ == "__main__":
    main(sys.argv[1:])
-   input()
+   while True:
+       time.sleep(1)
