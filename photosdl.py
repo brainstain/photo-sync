@@ -23,10 +23,6 @@ class Photos(photos.Photos):
     # https://<IP_ADDRESS>/photo/webapi/entry.cgi?api=SYNO.Foto.Search.Search&method=list_item
     # &version=1&offset=0&limit=10&keyword=%22Iceland%22
 
-    # https://syn.michaelgoldstein.co:5001/webapi/
-
-    #https://syn.michaelgoldstein.co:5001/webapi//photo/webapi/entry.cgi?api=SYNO.Foto.Search.Search
-
 
     def get_album_items(self, album_name: str, additional: Optional[str | list[str]] = None) -> dict[str, object] | str:
         if additional is None:
