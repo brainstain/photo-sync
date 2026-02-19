@@ -329,3 +329,110 @@ class TestMainArgParsing:
         )
         thread_args = mock_thread_cls.call_args.kwargs.get("args", ())
         assert thread_args[2] == 300
+
+
+# ---------------------------------------------------------------------------
+# main() — environment variable fallbacks
+# ---------------------------------------------------------------------------
+
+class TestMainEnvVarFallbacks:
+    """Env vars are used when no CLI arg is supplied; CLI args always win."""
+
+    def _run(self, args, env=None):
+        with patch("filesync.photosdl.Photos") as mock_phdl_cls, \
+             patch("filesync.threading.Thread") as mock_thread_cls, \
+             patch("filesync.create_app") as mock_create_app, \
+             patch("filesync.PhotoCache") as mock_cache_cls, \
+             patch.dict("os.environ", env or {}, clear=False):
+            mock_create_app.return_value = MagicMock()
+            mock_thread_cls.return_value = MagicMock()
+            mock_cache_cls.return_value = MagicMock()
+            filesync.main(args)
+            return mock_phdl_cls, mock_thread_cls, mock_cache_cls, mock_create_app
+
+    def test_credentials_from_env_vars(self):
+        mock_phdl_cls, _, _, _ = self._run([], env={
+            "PHOTOS_USERNAME": "envuser",
+            "PHOTOS_PASSWORD": "envpass",
+            "PHOTOS_URL": "nas.local",
+            "PHOTOS_PORT": "5001",
+        })
+        mock_phdl_cls.assert_called_once_with(
+            "nas.local", "5001", "envuser", "envpass",
+            secure=True, cert_verify=True, dsm_version=7, debug=True, otp_code=None,
+        )
+
+    def test_cli_args_override_env_vars(self):
+        mock_phdl_cls, _, _, _ = self._run(
+            ["-u", "cliuser", "-p", "clipass", "-U", "cli.host", "-P", "9000"],
+            env={
+                "PHOTOS_USERNAME": "envuser",
+                "PHOTOS_PASSWORD": "envpass",
+                "PHOTOS_URL": "env.host",
+                "PHOTOS_PORT": "1111",
+            }
+        )
+        mock_phdl_cls.assert_called_once_with(
+            "cli.host", "9000", "cliuser", "clipass",
+            secure=True, cert_verify=True, dsm_version=7, debug=True, otp_code=None,
+        )
+
+    def test_max_cache_from_env_var(self):
+        _, _, mock_cache_cls, _ = self._run(
+            ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
+            env={"PHOTOS_MAX_CACHE": "500"}
+        )
+        mock_cache_cls.assert_called_once_with(max_bytes=500 * 1024 * 1024)
+
+    def test_interval_from_env_var(self):
+        _, mock_thread_cls, _, _ = self._run(
+            ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
+            env={"PHOTOS_INTERVAL": "120"}
+        )
+        thread_args = mock_thread_cls.call_args.kwargs.get("args", ())
+        assert thread_args[2] == 120
+
+    def test_server_port_from_env_var(self):
+        _, _, _, mock_create_app = self._run(
+            ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
+            env={"PHOTOS_SERVER_PORT": "8080"}
+        )
+        mock_create_app.return_value.run.assert_called_once_with(host="0.0.0.0", port=8080)
+
+    def test_cli_max_cache_overrides_env_var(self):
+        _, _, mock_cache_cls, _ = self._run(
+            ["-u", "u", "-p", "p", "-U", "h", "-P", "1", "-m", "100"],
+            env={"PHOTOS_MAX_CACHE": "999"}
+        )
+        mock_cache_cls.assert_called_once_with(max_bytes=100 * 1024 * 1024)
+
+    def test_empty_env_var_falls_back_to_default_max_cache(self):
+        _, _, mock_cache_cls, _ = self._run(
+            ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
+            env={"PHOTOS_MAX_CACHE": ""}
+        )
+        mock_cache_cls.assert_called_once_with(max_bytes=250 * 1024 * 1024)
+
+    def test_empty_env_var_falls_back_to_default_interval(self):
+        _, mock_thread_cls, _, _ = self._run(
+            ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
+            env={"PHOTOS_INTERVAL": ""}
+        )
+        thread_args = mock_thread_cls.call_args.kwargs.get("args", ())
+        assert thread_args[2] == 60
+
+    def test_empty_env_var_falls_back_to_default_server_port(self):
+        _, _, _, mock_create_app = self._run(
+            ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
+            env={"PHOTOS_SERVER_PORT": ""}
+        )
+        mock_create_app.return_value.run.assert_called_once_with(host="0.0.0.0", port=5000)
+
+    def test_hardcoded_defaults_when_no_env_or_cli(self):
+        _, mock_thread_cls, mock_cache_cls, mock_create_app = self._run(
+            ["-u", "u", "-p", "p", "-U", "h", "-P", "1"]
+        )
+        mock_cache_cls.assert_called_once_with(max_bytes=250 * 1024 * 1024)
+        thread_args = mock_thread_cls.call_args.kwargs.get("args", ())
+        assert thread_args[2] == 60
+        mock_create_app.return_value.run.assert_called_once_with(host="0.0.0.0", port=5000)

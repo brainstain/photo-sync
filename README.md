@@ -55,6 +55,81 @@ docker run -p 5000:5000 photos-sync \
 
 A pre-built image is published to `ghcr.io` on every push to `main`.
 
+## LXC / Proxmox
+
+Pre-built LXC templates are published as GitHub Release assets whenever a `v*.*.*` tag is pushed.
+
+### Download
+
+```
+https://github.com/<owner>/<repo>/releases/download/<tag>/rootfs.tar.xz
+https://github.com/<owner>/<repo>/releases/download/<tag>/meta.tar.xz
+```
+
+### Import into Proxmox
+
+On the Proxmox host, download both files and create the container (adjust VMID, storage, and network as needed):
+
+```bash
+wget https://github.com/<owner>/<repo>/releases/download/<tag>/rootfs.tar.xz
+wget https://github.com/<owner>/<repo>/releases/download/<tag>/meta.tar.xz
+
+pct create 200 rootfs.tar.xz \
+  --ostype ubuntu \
+  --hostname photos-sync \
+  --memory 512 \
+  --rootfs local-lvm:8 \
+  --net0 name=eth0,bridge=vmbr0,ip=dhcp \
+  --unprivileged 1
+```
+
+### Configure
+
+Start the container and edit the environment file:
+
+```bash
+pct start 200
+pct enter 200
+nano /etc/default/photos-sync
+```
+
+Set at minimum the four required variables:
+
+```bash
+PHOTOS_USERNAME=your-nas-username
+PHOTOS_PASSWORD=your-nas-password
+PHOTOS_URL=192.168.1.100
+PHOTOS_PORT=5001
+```
+
+All options mirror the CLI flags:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PHOTOS_USERNAME` | | NAS username |
+| `PHOTOS_PASSWORD` | | NAS password |
+| `PHOTOS_URL` | | NAS hostname or IP |
+| `PHOTOS_PORT` | | NAS port |
+| `PHOTOS_MAX_CACHE` | `250` | Max cache size in MB |
+| `PHOTOS_INTERVAL` | `60` | Sync interval in seconds |
+| `PHOTOS_SERVER_PORT` | `5000` | HTTP server port |
+
+### Start the service
+
+```bash
+systemctl start photos-sync
+systemctl status photos-sync
+
+# Follow logs
+journalctl -u photos-sync -f
+```
+
+The service starts automatically on boot. After editing `/etc/default/photos-sync`:
+
+```bash
+systemctl restart photos-sync
+```
+
 ## Development
 
 ```bash

@@ -1,3 +1,4 @@
+import os
 import photosdl
 import time
 import sys
@@ -33,13 +34,13 @@ def sync_loop(phdl, cache, interval):
 
 
 def main(argv):
-    url = ''
-    port = ''
-    username = ''
-    password = ''
-    max_cache_mb = 250
-    sync_interval = 60
-    server_port = 5000
+    url = None
+    port = None
+    username = None
+    password = None
+    max_cache_mb = None
+    sync_interval = None
+    server_port = None
 
     try:
         opts, _ = getopt.getopt(
@@ -70,6 +71,28 @@ def main(argv):
             sync_interval = int(arg)
         elif opt in ("-s", "--server-port"):
             server_port = int(arg)
+
+    # Apply environment variable fallbacks (CLI args take precedence).
+    # Numeric params use a truthy check so that empty-string values from
+    # systemd EnvironmentFile (e.g. PHOTOS_MAX_CACHE=) fall through to
+    # the hardcoded default rather than raising ValueError on int('').
+    if username is None:
+        username = os.environ.get('PHOTOS_USERNAME', '')
+    if password is None:
+        password = os.environ.get('PHOTOS_PASSWORD', '')
+    if url is None:
+        url = os.environ.get('PHOTOS_URL', '')
+    if port is None:
+        port = os.environ.get('PHOTOS_PORT', '')
+    if max_cache_mb is None:
+        env_val = os.environ.get('PHOTOS_MAX_CACHE')
+        max_cache_mb = int(env_val) if env_val else 250
+    if sync_interval is None:
+        env_val = os.environ.get('PHOTOS_INTERVAL')
+        sync_interval = int(env_val) if env_val else 60
+    if server_port is None:
+        env_val = os.environ.get('PHOTOS_SERVER_PORT')
+        server_port = int(env_val) if env_val else 5000
 
     cache = PhotoCache(max_bytes=max_cache_mb * 1024 * 1024)
     phdl = photosdl.Photos(url, port, username, password,
