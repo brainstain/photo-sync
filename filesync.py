@@ -1,25 +1,60 @@
 import photosdl
 import time
-import sys, getopt
-from os import listdir, remove
-from os.path import isfile, join, exists
+import sys
+import getopt
+import threading
+from cache import PhotoCache
+from server import create_app
+
+ALBUM = 'kitchen-dash'
+ADDITIONAL = ["thumbnail", "resolution", "orientation", "video_convert", "video_meta", "address"]
+
+
+def sync_loop(phdl, cache, interval):
+    while True:
+        try:
+            items = phdl.get_album_items(ALBUM, additional=ADDITIONAL)
+            parsed = phdl.parse_items(items['data']['list'])
+
+            if len(parsed) < 5:
+                print(f"Only {len(parsed)} pictures in album, skipping sync")
+            else:
+                new_keys = cache.sync_index(parsed)
+                print(f"Index synced: {len(parsed)} total, {len(new_keys)} new")
+                for cache_key in new_keys:
+                    unit_id = parsed[cache_key]
+                    dl = phdl.download_item(cache_key=cache_key, unit_id=unit_id)
+                    cache.put(cache_key, dl.content)
+                    print(f"Cached: {cache_key}")
+        except Exception as e:
+            print(f"Sync error: {e}")
+
+        time.sleep(interval)
 
 
 def main(argv):
-    photo_dir = "./"
     url = ''
     port = ''
     username = ''
     password = ''
+    max_cache_mb = 250
+    sync_interval = 60
+    server_port = 5000
 
     try:
-        opts, args = getopt.getopt(argv,"hu:p:U:P:d:",["username=","password=","url=","port=","directory="])
+        opts, _ = getopt.getopt(
+            argv, "hu:p:U:P:m:i:s:",
+            ["username=", "password=", "url=", "port=", "max-cache=", "interval=", "server-port="]
+        )
     except getopt.GetoptError:
-        print ('filesync.py -u <username> -p <password> -U <url> -P <port> -d <dir>')
+        print('filesync.py -u <username> -p <password> -U <url> -P <port> '
+              '[-m <max_cache_mb>] [-i <sync_interval_sec>] [-s <server_port>]')
         sys.exit(2)
+
     for opt, arg in opts:
         if opt == '-h':
-            print ('filesync.py -u <username> -p <password> -U <url> -P <port> -d <dir>')
+            print('filesync.py -u <username> -p <password> -U <url> -P <port> '
+                  '[-m <max_cache_mb>] [-i <sync_interval_sec>] [-s <server_port>]')
             sys.exit()
         elif opt in ("-u", "--username"):
             username = arg
@@ -29,39 +64,26 @@ def main(argv):
             url = arg
         elif opt in ("-P", "--port"):
             port = arg
-        elif opt in ("-d", "--directory"):
-            photo_dir = arg
+        elif opt in ("-m", "--max-cache"):
+            max_cache_mb = int(arg)
+        elif opt in ("-i", "--interval"):
+            sync_interval = int(arg)
+        elif opt in ("-s", "--server-port"):
+            server_port = int(arg)
 
+    cache = PhotoCache(max_bytes=max_cache_mb * 1024 * 1024)
+    phdl = photosdl.Photos(url, port, username, password,
+                           secure=True, cert_verify=True, dsm_version=7,
+                           debug=True, otp_code=None)
 
-    current_files = [f for f in listdir(photo_dir) if isfile(join(photo_dir, f))]
+    sync_thread = threading.Thread(
+        target=sync_loop, args=(phdl, cache, sync_interval), daemon=True
+    )
+    sync_thread.start()
 
-    phdl = photosdl.Photos(url, port, username, password, secure=True, cert_verify=True, dsm_version=7, debug=True, otp_code=None)
-    additional= ["thumbnail","resolution","orientation","video_convert","video_meta","address"]
-    items = phdl.get_album_items('kitchen-dash', additional=additional)
+    app = create_app(cache, phdl)
+    app.run(host="0.0.0.0", port=server_port)
 
-    parsed_items = phdl.parse_items(items['data']['list'])
-
-    if len(parsed_items) < 5:
-        print("Only %s pictures, exiting" % len(parsed_items))
-        return
-    
-    for cache_key, unit_id in parsed_items.items():
-        if "%s.jpg" % cache_key in current_files:
-            current_files.remove("%s.jpg" % cache_key)
-        else:
-            dl = phdl.download_item(cache_key=cache_key, unit_id=unit_id)
-            with open("%s%s.jpg" % (photo_dir,cache_key), "wb") as binary_file:
-                binary_file.write(dl.content)
-
-    for current_file in current_files:
-        if current_file[-4:] != ".jpg":
-            continue
-        filename = "%s%s" % (photo_dir,current_file)
-
-        if exists(filename):
-            remove(filename)
 
 if __name__ == "__main__":
-   main(sys.argv[1:])
-   while True:
-       time.sleep(1)
+    main(sys.argv[1:])
