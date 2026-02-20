@@ -74,8 +74,9 @@ DEBIAN_FRONTEND=noninteractive chroot "$ROOTFS" apt-get install -y --no-install-
 # Install Python dependencies
 # ------------------------------------------------------------
 echo "==> Installing Python packages..."
-chroot "$ROOTFS" pip3 install --no-cache-dir \
-    -r "$SRC_DIR"/requirements.txt
+cp "$SRC_DIR/requirements.txt" "$ROOTFS/tmp/requirements.txt"
+chroot "$ROOTFS" pip3 install --no-cache-dir -r /tmp/requirements.txt
+rm "$ROOTFS/tmp/requirements.txt"
 # ------------------------------------------------------------
 # Install application source files
 # ------------------------------------------------------------
