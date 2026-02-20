@@ -54,6 +54,15 @@ EOF
 chmod +x "$ROOTFS/usr/sbin/policy-rc.d"
 
 # ------------------------------------------------------------
+# Enable universe repository (python3-pip lives there)
+# ------------------------------------------------------------
+cat > "$ROOTFS/etc/apt/sources.list" << 'SOURCES'
+deb http://archive.ubuntu.com/ubuntu jammy main universe
+deb http://archive.ubuntu.com/ubuntu jammy-updates main universe
+deb http://security.ubuntu.com/ubuntu jammy-security main universe
+SOURCES
+
+# ------------------------------------------------------------
 # Install Python 3 and pip
 # ------------------------------------------------------------
 echo "==> Installing Python 3..."
