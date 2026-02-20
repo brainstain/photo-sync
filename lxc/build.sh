@@ -159,6 +159,12 @@ templates: {}
 YAML
 
 # ------------------------------------------------------------
+# Unmount kernel filesystems before archiving
+# ------------------------------------------------------------
+echo "==> Unmounting kernel filesystems..."
+cleanup
+
+# ------------------------------------------------------------
 # Package rootfs and metadata as tarballs
 # ------------------------------------------------------------
 echo "==> Creating rootfs.tar.xz (this may take a few minutes)..."
