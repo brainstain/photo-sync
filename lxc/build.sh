@@ -10,6 +10,18 @@ ROOTFS="$BUILD_DIR/rootfs"
 META_DIR="$BUILD_DIR/meta"
 
 # ------------------------------------------------------------
+# Cleanup: unmount chroot bind-mounts on exit (success or error)
+# ------------------------------------------------------------
+cleanup() {
+    for mnt in dev/pts dev sys proc; do
+        if mountpoint -q "$ROOTFS/$mnt" 2>/dev/null; then
+            umount "$ROOTFS/$mnt" || true
+        fi
+    done
+}
+trap cleanup EXIT
+
+# ------------------------------------------------------------
 # Clean previous build
 # ------------------------------------------------------------
 echo "==> Cleaning previous build..."
@@ -23,21 +35,39 @@ echo "==> Bootstrapping Ubuntu 22.04 (jammy)..."
 debootstrap --arch=amd64 jammy "$ROOTFS" http://archive.ubuntu.com/ubuntu
 
 # ------------------------------------------------------------
+# Bind-mount kernel filesystems so apt-get works inside chroot
+# ------------------------------------------------------------
+echo "==> Mounting kernel filesystems..."
+mount -t proc  proc         "$ROOTFS/proc"
+mount --bind   /sys          "$ROOTFS/sys"
+mount --bind   /dev          "$ROOTFS/dev"
+mount --bind   /dev/pts      "$ROOTFS/dev/pts"
+
+# Forward DNS from the host
+cp /etc/resolv.conf "$ROOTFS/etc/resolv.conf"
+
+# Prevent package post-install scripts from starting daemons
+cat > "$ROOTFS/usr/sbin/policy-rc.d" << 'EOF'
+#!/bin/sh
+exit 101
+EOF
+chmod +x "$ROOTFS/usr/sbin/policy-rc.d"
+
+# ------------------------------------------------------------
 # Install Python 3 and pip
 # ------------------------------------------------------------
 echo "==> Installing Python 3..."
-chroot "$ROOTFS" apt-get update -qq
-chroot "$ROOTFS" apt-get install -y --no-install-recommends \
+DEBIAN_FRONTEND=noninteractive chroot "$ROOTFS" apt-get update -qq
+DEBIAN_FRONTEND=noninteractive chroot "$ROOTFS" apt-get install -y --no-install-recommends \
     python3 python3-pip ca-certificates
 
 # ------------------------------------------------------------
 # Install Python dependencies
 # ------------------------------------------------------------
 echo "==> Installing Python packages..."
+cp "$SRC_DIR"/requirements.txt ./
 chroot "$ROOTFS" pip3 install --no-cache-dir \
-    synology-api==0.7.3 \
-    flask==3.1.0
-
+    -r requirements.txt
 # ------------------------------------------------------------
 # Install application source files
 # ------------------------------------------------------------
