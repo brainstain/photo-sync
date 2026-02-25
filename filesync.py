@@ -5,6 +5,7 @@ import sys
 import getopt
 import threading
 from cache import PhotoCache
+from immich import ImmichClient
 from server import create_app
 
 ALBUM = 'kitchen-dash'
@@ -41,20 +42,26 @@ def main(argv):
     max_cache_mb = None
     sync_interval = None
     server_port = None
+    source = None
+    immich_url = None
+    immich_api_key = None
+    immich_album = None
 
     try:
         opts, _ = getopt.getopt(
             argv, "hu:p:U:P:m:i:s:",
-            ["username=", "password=", "url=", "port=", "max-cache=", "interval=", "server-port="]
+            ["username=", "password=", "url=", "port=", "max-cache=",
+             "interval=", "server-port=", "source=",
+             "immich-url=", "immich-api-key=", "immich-album="]
         )
     except getopt.GetoptError:
-        print('filesync.py -u <username> -p <password> -U <url> -P <port> '
+        print('filesync.py --source <synology|immich> [source options] '
               '[-m <max_cache_mb>] [-i <sync_interval_sec>] [-s <server_port>]')
         sys.exit(2)
 
     for opt, arg in opts:
         if opt == '-h':
-            print('filesync.py -u <username> -p <password> -U <url> -P <port> '
+            print('filesync.py --source <synology|immich> [source options] '
                   '[-m <max_cache_mb>] [-i <sync_interval_sec>] [-s <server_port>]')
             sys.exit()
         elif opt in ("-u", "--username"):
@@ -71,11 +78,21 @@ def main(argv):
             sync_interval = int(arg)
         elif opt in ("-s", "--server-port"):
             server_port = int(arg)
+        elif opt == "--source":
+            source = arg
+        elif opt == "--immich-url":
+            immich_url = arg
+        elif opt == "--immich-api-key":
+            immich_api_key = arg
+        elif opt == "--immich-album":
+            immich_album = arg
 
     # Apply environment variable fallbacks (CLI args take precedence).
     # Numeric params use a truthy check so that empty-string values from
     # systemd EnvironmentFile (e.g. PHOTOS_MAX_CACHE=) fall through to
     # the hardcoded default rather than raising ValueError on int('').
+    if source is None:
+        source = os.environ.get('PHOTOS_SOURCE', 'synology')
     if username is None:
         username = os.environ.get('PHOTOS_USERNAME', '')
     if password is None:
@@ -84,6 +101,12 @@ def main(argv):
         url = os.environ.get('PHOTOS_URL', '')
     if port is None:
         port = os.environ.get('PHOTOS_PORT', '')
+    if immich_url is None:
+        immich_url = os.environ.get('IMMICH_URL')
+    if immich_api_key is None:
+        immich_api_key = os.environ.get('IMMICH_API_KEY', '')
+    if immich_album is None:
+        immich_album = os.environ.get('IMMICH_ALBUM')
     if max_cache_mb is None:
         env_val = os.environ.get('PHOTOS_MAX_CACHE')
         max_cache_mb = int(env_val) if env_val else 250
@@ -95,9 +118,14 @@ def main(argv):
         server_port = int(env_val) if env_val else 5000
 
     cache = PhotoCache(max_bytes=max_cache_mb * 1024 * 1024)
-    phdl = photosdl.Photos(url, port, username, password,
-                           secure=True, cert_verify=True, dsm_version=7,
-                           debug=True, otp_code=None)
+
+    if source == "immich":
+        phdl = ImmichClient(url=immich_url, api_key=immich_api_key,
+                            album_id=immich_album)
+    else:
+        phdl = photosdl.Photos(url, port, username, password,
+                               secure=True, cert_verify=True, dsm_version=7,
+                               debug=True, otp_code=None)
 
     sync_thread = threading.Thread(
         target=sync_loop, args=(phdl, cache, sync_interval), daemon=True

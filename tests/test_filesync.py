@@ -245,31 +245,33 @@ class TestMainArgParsing:
 
     def _run(self, args):
         with patch("filesync.photosdl.Photos") as mock_phdl_cls, \
+             patch("filesync.ImmichClient") as mock_immich_cls, \
              patch("filesync.threading.Thread") as mock_thread_cls, \
              patch("filesync.create_app") as mock_create_app, \
              patch("filesync.PhotoCache") as mock_cache_cls:
             mock_create_app.return_value = MagicMock()
             mock_thread_cls.return_value = MagicMock()
             mock_cache_cls.return_value = MagicMock()
+            mock_immich_cls.return_value = MagicMock()
             filesync.main(args)
-            return mock_phdl_cls, mock_thread_cls, mock_cache_cls, mock_create_app
+            return mock_phdl_cls, mock_thread_cls, mock_cache_cls, mock_create_app, mock_immich_cls
 
     def test_default_cache_size_250mb(self):
-        _, _, mock_cache_cls, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "5001"])
+        _, _, mock_cache_cls, _, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "5001"])
         mock_cache_cls.assert_called_once_with(max_bytes=250 * 1024 * 1024)
 
     def test_custom_cache_size_via_short_flag(self):
-        _, _, mock_cache_cls, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1", "-m", "100"])
+        _, _, mock_cache_cls, _, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1", "-m", "100"])
         mock_cache_cls.assert_called_once_with(max_bytes=100 * 1024 * 1024)
 
     def test_custom_cache_size_via_long_flag(self):
-        _, _, mock_cache_cls, _ = self._run(
+        _, _, mock_cache_cls, _, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1", "--max-cache", "50"]
         )
         mock_cache_cls.assert_called_once_with(max_bytes=50 * 1024 * 1024)
 
     def test_credentials_passed_to_phdl(self):
-        mock_phdl_cls, _, _, _ = self._run(
+        mock_phdl_cls, _, _, _, _ = self._run(
             ["-u", "alice", "-p", "secret", "-U", "nas.local", "-P", "5001"]
         )
         mock_phdl_cls.assert_called_once_with(
@@ -278,7 +280,7 @@ class TestMainArgParsing:
         )
 
     def test_long_form_credentials(self):
-        mock_phdl_cls, _, _, _ = self._run(
+        mock_phdl_cls, _, _, _, _ = self._run(
             ["--username", "bob", "--password", "pw", "--url", "host", "--port", "9000"]
         )
         mock_phdl_cls.assert_called_once_with(
@@ -287,17 +289,17 @@ class TestMainArgParsing:
         )
 
     def test_default_server_port_5000(self):
-        _, _, _, mock_create_app = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1"])
+        _, _, _, mock_create_app, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1"])
         mock_create_app.return_value.run.assert_called_once_with(host="0.0.0.0", port=5000)
 
     def test_custom_server_port(self):
-        _, _, _, mock_create_app = self._run(
+        _, _, _, mock_create_app, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1", "-s", "8080"]
         )
         mock_create_app.return_value.run.assert_called_once_with(host="0.0.0.0", port=8080)
 
     def test_long_form_server_port(self):
-        _, _, _, mock_create_app = self._run(
+        _, _, _, mock_create_app, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1", "--server-port", "9090"]
         )
         mock_create_app.return_value.run.assert_called_once_with(host="0.0.0.0", port=9090)
@@ -307,28 +309,61 @@ class TestMainArgParsing:
             filesync.main(["--not-a-real-flag"])
 
     def test_sync_thread_started_as_daemon(self):
-        _, mock_thread_cls, _, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1"])
+        _, mock_thread_cls, _, _, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1"])
         thread_kwargs = mock_thread_cls.call_args.kwargs
         assert thread_kwargs.get("daemon") is True
         mock_thread_cls.return_value.start.assert_called_once()
 
     def test_sync_thread_targets_sync_loop(self):
-        _, mock_thread_cls, _, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1"])
+        _, mock_thread_cls, _, _, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1"])
         thread_kwargs = mock_thread_cls.call_args.kwargs
         assert thread_kwargs.get("target") is sync_loop
 
     def test_default_sync_interval_60(self):
-        _, mock_thread_cls, _, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1"])
+        _, mock_thread_cls, _, _, _ = self._run(["-u", "u", "-p", "p", "-U", "h", "-P", "1"])
         thread_args = mock_thread_cls.call_args.kwargs.get("args", ())
         # args = (phdl, cache, interval)
         assert thread_args[2] == 60
 
     def test_custom_sync_interval(self):
-        _, mock_thread_cls, _, _ = self._run(
+        _, mock_thread_cls, _, _, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1", "-i", "300"]
         )
         thread_args = mock_thread_cls.call_args.kwargs.get("args", ())
         assert thread_args[2] == 300
+
+    def test_default_source_is_synology(self):
+        mock_phdl_cls, _, _, _, mock_immich_cls = self._run(
+            ["-u", "u", "-p", "p", "-U", "h", "-P", "1"]
+        )
+        mock_phdl_cls.assert_called_once()
+        mock_immich_cls.assert_not_called()
+
+    def test_source_immich_creates_immich_client(self):
+        mock_phdl_cls, _, _, _, mock_immich_cls = self._run(
+            ["--source", "immich", "--immich-api-key", "my-key", "--immich-album", "album-1"]
+        )
+        mock_immich_cls.assert_called_once_with(
+            url=None, api_key="my-key", album_id="album-1"
+        )
+        mock_phdl_cls.assert_not_called()
+
+    def test_immich_custom_url(self):
+        _, _, _, _, mock_immich_cls = self._run(
+            ["--source", "immich", "--immich-url", "https://my.immich.server",
+             "--immich-api-key", "k", "--immich-album", "a"]
+        )
+        mock_immich_cls.assert_called_once_with(
+            url="https://my.immich.server", api_key="k", album_id="a"
+        )
+
+    def test_immich_no_album(self):
+        _, _, _, _, mock_immich_cls = self._run(
+            ["--source", "immich", "--immich-api-key", "k"]
+        )
+        mock_immich_cls.assert_called_once_with(
+            url=None, api_key="k", album_id=None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +375,7 @@ class TestMainEnvVarFallbacks:
 
     def _run(self, args, env=None):
         with patch("filesync.photosdl.Photos") as mock_phdl_cls, \
+             patch("filesync.ImmichClient") as mock_immich_cls, \
              patch("filesync.threading.Thread") as mock_thread_cls, \
              patch("filesync.create_app") as mock_create_app, \
              patch("filesync.PhotoCache") as mock_cache_cls, \
@@ -347,11 +383,12 @@ class TestMainEnvVarFallbacks:
             mock_create_app.return_value = MagicMock()
             mock_thread_cls.return_value = MagicMock()
             mock_cache_cls.return_value = MagicMock()
+            mock_immich_cls.return_value = MagicMock()
             filesync.main(args)
-            return mock_phdl_cls, mock_thread_cls, mock_cache_cls, mock_create_app
+            return mock_phdl_cls, mock_thread_cls, mock_cache_cls, mock_create_app, mock_immich_cls
 
     def test_credentials_from_env_vars(self):
-        mock_phdl_cls, _, _, _ = self._run([], env={
+        mock_phdl_cls, _, _, _, _ = self._run([], env={
             "PHOTOS_USERNAME": "envuser",
             "PHOTOS_PASSWORD": "envpass",
             "PHOTOS_URL": "nas.local",
@@ -363,7 +400,7 @@ class TestMainEnvVarFallbacks:
         )
 
     def test_cli_args_override_env_vars(self):
-        mock_phdl_cls, _, _, _ = self._run(
+        mock_phdl_cls, _, _, _, _ = self._run(
             ["-u", "cliuser", "-p", "clipass", "-U", "cli.host", "-P", "9000"],
             env={
                 "PHOTOS_USERNAME": "envuser",
@@ -378,14 +415,14 @@ class TestMainEnvVarFallbacks:
         )
 
     def test_max_cache_from_env_var(self):
-        _, _, mock_cache_cls, _ = self._run(
+        _, _, mock_cache_cls, _, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
             env={"PHOTOS_MAX_CACHE": "500"}
         )
         mock_cache_cls.assert_called_once_with(max_bytes=500 * 1024 * 1024)
 
     def test_interval_from_env_var(self):
-        _, mock_thread_cls, _, _ = self._run(
+        _, mock_thread_cls, _, _, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
             env={"PHOTOS_INTERVAL": "120"}
         )
@@ -393,28 +430,28 @@ class TestMainEnvVarFallbacks:
         assert thread_args[2] == 120
 
     def test_server_port_from_env_var(self):
-        _, _, _, mock_create_app = self._run(
+        _, _, _, mock_create_app, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
             env={"PHOTOS_SERVER_PORT": "8080"}
         )
         mock_create_app.return_value.run.assert_called_once_with(host="0.0.0.0", port=8080)
 
     def test_cli_max_cache_overrides_env_var(self):
-        _, _, mock_cache_cls, _ = self._run(
+        _, _, mock_cache_cls, _, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1", "-m", "100"],
             env={"PHOTOS_MAX_CACHE": "999"}
         )
         mock_cache_cls.assert_called_once_with(max_bytes=100 * 1024 * 1024)
 
     def test_empty_env_var_falls_back_to_default_max_cache(self):
-        _, _, mock_cache_cls, _ = self._run(
+        _, _, mock_cache_cls, _, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
             env={"PHOTOS_MAX_CACHE": ""}
         )
         mock_cache_cls.assert_called_once_with(max_bytes=250 * 1024 * 1024)
 
     def test_empty_env_var_falls_back_to_default_interval(self):
-        _, mock_thread_cls, _, _ = self._run(
+        _, mock_thread_cls, _, _, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
             env={"PHOTOS_INTERVAL": ""}
         )
@@ -422,17 +459,56 @@ class TestMainEnvVarFallbacks:
         assert thread_args[2] == 60
 
     def test_empty_env_var_falls_back_to_default_server_port(self):
-        _, _, _, mock_create_app = self._run(
+        _, _, _, mock_create_app, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1"],
             env={"PHOTOS_SERVER_PORT": ""}
         )
         mock_create_app.return_value.run.assert_called_once_with(host="0.0.0.0", port=5000)
 
     def test_hardcoded_defaults_when_no_env_or_cli(self):
-        _, mock_thread_cls, mock_cache_cls, mock_create_app = self._run(
+        _, mock_thread_cls, mock_cache_cls, mock_create_app, _ = self._run(
             ["-u", "u", "-p", "p", "-U", "h", "-P", "1"]
         )
         mock_cache_cls.assert_called_once_with(max_bytes=250 * 1024 * 1024)
         thread_args = mock_thread_cls.call_args.kwargs.get("args", ())
         assert thread_args[2] == 60
         mock_create_app.return_value.run.assert_called_once_with(host="0.0.0.0", port=5000)
+
+    def test_source_from_env_var(self):
+        _, _, _, _, mock_immich_cls = self._run(
+            [], env={
+                "PHOTOS_SOURCE": "immich",
+                "IMMICH_API_KEY": "env-key",
+                "IMMICH_ALBUM": "env-album",
+            }
+        )
+        mock_immich_cls.assert_called_once_with(
+            url=None, api_key="env-key", album_id="env-album"
+        )
+
+    def test_immich_url_from_env_var(self):
+        _, _, _, _, mock_immich_cls = self._run(
+            [], env={
+                "PHOTOS_SOURCE": "immich",
+                "IMMICH_URL": "https://env.immich.server",
+                "IMMICH_API_KEY": "k",
+            }
+        )
+        mock_immich_cls.assert_called_once_with(
+            url="https://env.immich.server", api_key="k", album_id=None
+        )
+
+    def test_cli_immich_args_override_env_vars(self):
+        _, _, _, _, mock_immich_cls = self._run(
+            ["--source", "immich", "--immich-url", "https://cli.server",
+             "--immich-api-key", "cli-key", "--immich-album", "cli-album"],
+            env={
+                "PHOTOS_SOURCE": "synology",
+                "IMMICH_URL": "https://env.server",
+                "IMMICH_API_KEY": "env-key",
+                "IMMICH_ALBUM": "env-album",
+            }
+        )
+        mock_immich_cls.assert_called_once_with(
+            url="https://cli.server", api_key="cli-key", album_id="cli-album"
+        )
