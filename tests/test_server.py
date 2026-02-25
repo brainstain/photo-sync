@@ -88,6 +88,24 @@ class TestRandomFile:
         resp = client.get("/files")
         assert resp.data == b"my_image_bytes"
 
+    def test_cache_control_header_is_set(self, client, cache):
+        _seed_cache(cache, ["k1"])
+        resp = client.get("/files")
+        assert resp.headers.get("Cache-Control") == "public, max-age=86400"
+
+    def test_etag_header_matches_chosen_key(self, client, cache):
+        _seed_cache(cache, ["k1"])
+        with patch("server.random.choice", return_value="k1"):
+            resp = client.get("/files")
+        assert resp.headers.get("ETag") == '"k1"'
+
+    def test_etag_is_quoted_string(self, client, cache):
+        _seed_cache(cache, ["mykey"])
+        with patch("server.random.choice", return_value="mykey"):
+            resp = client.get("/files")
+        etag = resp.headers.get("ETag", "")
+        assert etag.startswith('"') and etag.endswith('"')
+
 
 # ---------------------------------------------------------------------------
 # GET /files/list
