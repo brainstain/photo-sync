@@ -1,13 +1,13 @@
 # photos-sync
 
-Syncs photos from a Synology NAS album to an in-memory cache and serves them over HTTP.  It is hard coded to pull a specific album.  You can utilize this to power picture dashboards.
+Syncs photos from a photo server (Synology NAS or Immich) to an in-memory cache and serves them over HTTP. You can utilize this to power picture dashboards.
 
 ## How it works
 
-On startup, `filesync.py` connects to a Synology Photos server and indexes all photos in the `kitchen-dash` album. A background thread periodically re-syncs the index, downloading any newly added photos into an LRU cache. A Flask web server runs in the foreground and serves photos from the cache, fetching from the NAS on a cache miss.
+On startup, `filesync.py` connects to a photo source and indexes all photos in the configured album. A background thread periodically re-syncs the index, downloading any newly added photos into an LRU cache. A Flask web server runs in the foreground and serves photos from the cache, fetching from the source on a cache miss.
 
 ```
-Synology NAS
+Photo source (Synology NAS or Immich)
      │
      │  (sync loop, every N seconds)
      ▼
@@ -16,6 +16,18 @@ Synology NAS
      ▼
  Flask API  ──► clients
 ```
+
+## Sources
+
+### Synology (default)
+
+Connects to a Synology Photos server using DSM 7 credentials.
+
+### Immich
+
+Connects to an [Immich](https://immich.app) server using an API key and syncs photos from a specific album. The album ID must be supplied at startup — find it in the Immich web UI URL when browsing the album (e.g. `https://your-server/albums/3f2a1b4c-…`).
+
+Default server URL: `https://photosync.michaelgoldstein.co`
 
 ## API
 
@@ -30,27 +42,54 @@ Synology NAS
 
 ```bash
 pip install -r requirements.txt
+
+# Synology source (default)
 python filesync.py -u <username> -p <password> -U <nas-host> -P <nas-port>
+
+# Immich source
+python filesync.py --source immich --immich-api-key <key> --immich-album <album-id>
 ```
 
-### Options
+### General options
 
-| Flag | Long form | Default | Description |
-|------|-----------|---------|-------------|
-| `-u` | `--username` | | NAS username |
-| `-p` | `--password` | | NAS password |
-| `-U` | `--url` | | NAS hostname or IP |
-| `-P` | `--port` | | NAS port |
-| `-m` | `--max-cache` | `250` | Max cache size in MB |
-| `-i` | `--interval` | `60` | Sync interval in seconds |
-| `-s` | `--server-port` | `5000` | HTTP server port |
+| Flag | Long form | Env var | Default | Description |
+|------|-----------|---------|---------|-------------|
+| | `--source` | `PHOTOS_SOURCE` | `synology` | Photo source: `synology` or `immich` |
+| `-m` | `--max-cache` | `PHOTOS_MAX_CACHE` | `250` | Max cache size in MB |
+| `-i` | `--interval` | `PHOTOS_INTERVAL` | `60` | Sync interval in seconds |
+| `-s` | `--server-port` | `PHOTOS_SERVER_PORT` | `5000` | HTTP server port |
+
+### Synology options (`--source synology`)
+
+| Flag | Long form | Env var | Default | Description |
+|------|-----------|---------|---------|-------------|
+| `-u` | `--username` | `PHOTOS_USERNAME` | | NAS username |
+| `-p` | `--password` | `PHOTOS_PASSWORD` | | NAS password |
+| `-U` | `--url` | `PHOTOS_URL` | | NAS hostname or IP |
+| `-P` | `--port` | `PHOTOS_PORT` | | NAS port |
+
+### Immich options (`--source immich`)
+
+| Flag | Long form | Env var | Default | Description |
+|------|-----------|---------|---------|-------------|
+| | `--immich-url` | `IMMICH_URL` | `https://photosync.michaelgoldstein.co` | Immich server URL |
+| | `--immich-api-key` | `IMMICH_API_KEY` | | Immich API key |
+| | `--immich-album` | `IMMICH_ALBUM` | | Album ID to sync (required for sync) |
+
+The Immich album ID is the UUID visible in the URL when browsing an album in the Immich web UI.
 
 ## Docker
 
 ```bash
 docker build -t photos-sync .
+
+# Synology source
 docker run -p 5000:5000 photos-sync \
   -u <username> -p <password> -U <nas-host> -P <nas-port>
+
+# Immich source
+docker run -p 5000:5000 photos-sync \
+  --source immich --immich-api-key <key> --immich-album <album-id>
 ```
 
 A pre-built image is published to `ghcr.io` on every push to `main`.
@@ -93,26 +132,40 @@ pct enter 200
 nano /etc/default/photos-sync
 ```
 
-Set at minimum the four required variables:
+Set variables for your chosen source. For Synology:
 
 ```bash
+PHOTOS_SOURCE=synology
 PHOTOS_USERNAME=your-nas-username
 PHOTOS_PASSWORD=your-nas-password
 PHOTOS_URL=192.168.1.100
 PHOTOS_PORT=5001
 ```
 
-All options mirror the CLI flags:
+For Immich:
+
+```bash
+PHOTOS_SOURCE=immich
+IMMICH_URL=https://photosync.michaelgoldstein.co
+IMMICH_API_KEY=your-api-key
+IMMICH_ALBUM=3f2a1b4c-0000-0000-0000-000000000000
+```
+
+All environment variables and their defaults:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PHOTOS_USERNAME` | | NAS username |
-| `PHOTOS_PASSWORD` | | NAS password |
-| `PHOTOS_URL` | | NAS hostname or IP |
-| `PHOTOS_PORT` | | NAS port |
+| `PHOTOS_SOURCE` | `synology` | Photo source: `synology` or `immich` |
 | `PHOTOS_MAX_CACHE` | `250` | Max cache size in MB |
 | `PHOTOS_INTERVAL` | `60` | Sync interval in seconds |
 | `PHOTOS_SERVER_PORT` | `5000` | HTTP server port |
+| `PHOTOS_USERNAME` | | Synology NAS username |
+| `PHOTOS_PASSWORD` | | Synology NAS password |
+| `PHOTOS_URL` | | Synology NAS hostname or IP |
+| `PHOTOS_PORT` | | Synology NAS port |
+| `IMMICH_URL` | `https://photosync.michaelgoldstein.co` | Immich server URL |
+| `IMMICH_API_KEY` | | Immich API key |
+| `IMMICH_ALBUM` | | Immich album ID to sync |
 
 ### Start the service
 
@@ -135,7 +188,7 @@ systemctl restart photos-sync
 ```bash
 pip install -r requirements.txt
 pytest tests/ -v
-photos-sync -u <username> -p <password> -U <nas-host> -P <nas-port>
+python filesync.py -u <username> -p <password> -U <nas-host> -P <nas-port>
 ```
 
-The test suite mocks all Synology API calls. No NAS connection is required to run tests.
+The test suite mocks all external API calls. No NAS or Immich connection is required to run tests.
