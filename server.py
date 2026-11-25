@@ -1,6 +1,6 @@
 import io
 import random
-from flask import Flask, send_file, jsonify, abort
+from flask import Flask, send_file, jsonify, abort, make_response
 
 
 def create_app(cache, phdl):
@@ -29,7 +29,11 @@ def create_app(cache, phdl):
         keys = cache.all_keys()
         if not keys:
             abort(404, description="No photos available")
-        return _serve(random.choice(keys))
+        cache_key = random.choice(keys)
+        resp = make_response(_serve(cache_key))
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        resp.headers["ETag"] = f'"{cache_key}"'
+        return resp
 
     @app.get("/files/list")
     def list_files():
